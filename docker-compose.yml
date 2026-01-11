@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  # PostgreSQL with pgvector
+  db:
+    image: ankane/pgvector:latest
+    container_name: epics_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: epics_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - epics_network
+
+  # FastAPI Application
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: epics_api
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/epics_db
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - API_KEYS=${API_KEYS:-dev_key_123456789}
+      - SECRET_KEY=${SECRET_KEY:-change-this-secret-key}
+      - ENVIRONMENT=production
+      - DEBUG=False
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./app:/app/app
+    command: >
+      sh -c "
+        alembic upgrade head &&
+        uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      "
+    networks:
+      - epics_network
+
+volumes:
+  postgres_data:
+
+networks:
+  epics_network:
+    driver: bridge
